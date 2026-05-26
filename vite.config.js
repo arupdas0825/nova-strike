@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  base: '/nova-strike/',
+  base: '/',
   build: {
     minify: 'esbuild',
     sourcemap: false,

@@ -50,7 +50,7 @@ export class AudioEngine {
     }
 
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch(() => {});
     }
   }
 
@@ -682,7 +682,7 @@ export class AudioEngine {
       } catch(e) {}
     } else if (this.ctx) {
       try {
-        this.ctx.resume();
+        this.ctx.resume().catch(() => {});
       } catch(e) {}
       this.updateMasterVolume();
     }

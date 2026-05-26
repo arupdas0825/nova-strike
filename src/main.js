@@ -15,24 +15,26 @@ function boot() {
     return;
   }
 
-  const game = new Game(canvas);
-  game.start();
+  try {
+    const game = new Game(canvas);
+    game.boot();
 
-  // Remove preloader with fade transition
-  const loader = document.getElementById('loader');
-  if (loader) {
-    // Short delay to ensure first frame renders
-    setTimeout(() => {
+    // Expose game instance for debugging
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      window.__novaStrike = game;
+    }
+  } catch (err) {
+    console.error('NOVA STRIKE: Critical failure during game bootstrap:', err);
+    
+    // Emergency preloader removal fallback to allow user interface interaction or inspection
+    const loader = document.getElementById('loader');
+    if (loader) {
       loader.style.opacity = '0';
       setTimeout(() => {
         loader.style.display = 'none';
+        loader.style.pointerEvents = 'none';
       }, 500);
-    }, 300);
-  }
-
-  // Expose game instance for debugging
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    window.__novaStrike = game;
+    }
   }
 }
 

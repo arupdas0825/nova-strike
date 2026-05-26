@@ -39,9 +39,9 @@ export class Canvas {
    * Resizes canvas based on window dimensions and scales context by devicePixelRatio
    */
   resize() {
-    const container = this.canvas.parentElement;
-    const windowWidth = container.clientWidth;
-    const windowHeight = container.clientHeight;
+    const container = this.canvas.parentElement || document.body;
+    const windowWidth = container.clientWidth || window.innerWidth || CONSTANTS.GAME_WIDTH;
+    const windowHeight = container.clientHeight || window.innerHeight || CONSTANTS.GAME_HEIGHT;
 
     let targetWidth = windowWidth;
     let targetHeight = windowHeight;

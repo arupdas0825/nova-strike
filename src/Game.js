@@ -107,7 +107,7 @@ export class Game {
     this.touchControls = new TouchControls(this.canvas, this.input);
 
     // Initial state
-    this.state = CONSTANTS.STATE_TITLE;
+    this.state = 'loading';
     this.highScore = this.saveSystem.loadHighScore();
 
     // Variable Timestep metrics
@@ -123,6 +123,15 @@ export class Game {
 
     // Expose player globally for hostile missiles homing
     window.__gamePlayer = this.player;
+
+    // HARD FALLBACK: if still loading after 3 seconds, force Title state and remove loader overlay
+    this._loadingTimeout = setTimeout(() => {
+      if (this.state === 'loading') {
+        console.warn('NOVA STRIKE: Loading timed out — forcing title state.');
+        this.state = CONSTANTS.STATE_TITLE;
+        this._hideLoadingScreen();
+      }
+    }, 3000);
   }
 
   /**
@@ -165,6 +174,70 @@ export class Game {
   }
 
   /**
+   * Synchronous boot sequence coordinating asset preloading, race timeouts, and state transition.
+   */
+  boot() {
+    this._showLoadingScreen();
+
+    // Simulate asset loading with guaranteed completion
+    const loadPromise = this._loadAssets();
+    const timeout = new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Race: complete loading OR timeout after 2s — never hang
+    Promise.race([loadPromise, timeout])
+      .catch((err) => {
+        if (CONSTANTS.DEBUG) console.error('NOVA STRIKE: Asset preloading error:', err);
+      })
+      .finally(() => {
+        // Guarantee clear timeout
+        if (this._loadingTimeout) {
+          clearTimeout(this._loadingTimeout);
+          this._loadingTimeout = null;
+        }
+        
+        this._hideLoadingScreen();
+        this.state = CONSTANTS.STATE_TITLE;
+        this.start();
+      });
+  }
+
+  /**
+   * Simulates visual asset generation / cache checks
+   * @returns {Promise<void>}
+   */
+  _loadAssets() {
+    return Promise.resolve();
+  }
+
+  /**
+   * Accesses the HTML preloader and displays it
+   */
+  _showLoadingScreen() {
+    const el = document.getElementById('loader');
+    if (!el) return;
+    el.style.opacity = '1';
+    el.style.display = 'flex';
+    el.style.pointerEvents = 'auto';
+  }
+
+  /**
+   * Dismisses the HTML preloader with a smooth opacity transition
+   */
+  _hideLoadingScreen() {
+    const el = document.getElementById('loader');
+    if (!el) return;
+    
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 0.4s ease';
+    
+    // Completely disable pointer events and display after transition
+    setTimeout(() => {
+      el.style.display = 'none';
+      el.style.pointerEvents = 'none';
+    }, 420);
+  }
+
+  /**
    * Boots up the animation loop
    */
   start() {
@@ -173,10 +246,6 @@ export class Game {
     requestAnimationFrame((t) => this.loop(t));
   }
 
-  /**
-   * Variable delta-time loop: pos += vel * dt, capped at 0.05
-   * @param {number} timestamp 
-   */
   loop(timestamp) {
     if (!this.running) return;
 
@@ -191,11 +260,17 @@ export class Game {
     // Cap delta to prevent massive leaps on tab switches (0.05s / 20fps cap)
     const dt = Math.min(delta / 1000, 0.05);
 
-    // Tick FPS monitor to disable bloom if dragging down mid-range systems
-    this._monitorPerformance(dt);
+    try {
+      // Tick FPS monitor to disable bloom if dragging down mid-range systems
+      this._monitorPerformance(dt);
 
-    this.update(dt);
-    this.draw();
+      this.update(dt);
+      this.draw();
+    } catch (err) {
+      if (CONSTANTS.DEBUG || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        console.error('[GameLoop] Frame error:', err);
+      }
+    }
 
     requestAnimationFrame((t) => this.loop(t));
   }
