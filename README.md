@@ -1,5 +1,5 @@
 # NOVA STRIKE — Space Combat
-> 🚀 [**PLAY LIVE DEMO**](https://arupdas0825.github.io/nova-strike/)
+> 🚀 [**PLAY LIVE DEMO**](nova-strike-mu.vercel.app)
 
 ## About
 NOVA STRIKE is a visually stunning, high-fidelity 2D browser space combat game designed for professional realism and cinematic quality. Built entirely in Vanilla JS using HTML5 dual-canvas architectures and Web Audio synthesizer pipelines, it features realistic Verlet integration physics, advanced AI sweeps, O(1) spatial collision hashes, and dynamic hardware-accelerated post-process glowing blooms. 
