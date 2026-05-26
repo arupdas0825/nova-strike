@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * Handles physical and virtual controller bindings.
+ * Handles physical keyboard, mouse click/touch, and Gamepad controller integrations.
+ * Exposes a unified directional and action API.
  */
 export class Input {
   constructor() {
@@ -9,6 +10,9 @@ export class Input {
     this.keys = {};
     /** @type {Object<string, boolean>} Single press trigger latch */
     this.keysPressed = {};
+    
+    // Gamepad state
+    this.gamepadAxes = null;
 
     this.init();
   }
@@ -21,7 +25,7 @@ export class Input {
       const key = e.key.toLowerCase();
       
       // Stop page scrolling with navigation keys during active play
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'spacebar'].includes(e.key.toLowerCase())) {
+      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'spacebar', 'escape', 'enter'].includes(e.key.toLowerCase())) {
         e.preventDefault();
       }
 
@@ -41,7 +45,54 @@ export class Input {
     window.addEventListener('blur', () => {
       this.keys = {};
       this.keysPressed = {};
+      this.gamepadAxes = null;
     });
+  }
+
+  /**
+   * Polls gamepads if available and populates axis/virtual keys
+   */
+  update() {
+    const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let activeGamepad = null;
+
+    for (let i = 0; i < gamepads.length; i++) {
+      if (gamepads[i] && gamepads[i].connected) {
+        activeGamepad = gamepads[i];
+        break; // Use the first active controller
+      }
+    }
+
+    if (activeGamepad) {
+      const ax = activeGamepad.axes[0]; // horizontal
+      const ay = activeGamepad.axes[1]; // vertical
+      const deadzone = 0.18;
+
+      this.gamepadAxes = {
+        x: Math.abs(ax) > deadzone ? ax : 0,
+        y: Math.abs(ay) > deadzone ? ay : 0
+      };
+
+      // Button mapping
+      // Button 0 (A/Cross) or 7 (RT) -> Fire/Select (SPACE)
+      const fireBtn = (activeGamepad.buttons[0]?.pressed) || (activeGamepad.buttons[7]?.pressed);
+      this.setVirtualKey(' ', fireBtn);
+
+      // Button 1 (B/Circle) or 4/5 (Shoulders) -> Weapon Switch (Q)
+      const switchBtn = (activeGamepad.buttons[1]?.pressed) || (activeGamepad.buttons[4]?.pressed) || (activeGamepad.buttons[5]?.pressed);
+      this.setVirtualKey('q', switchBtn);
+
+      // Button 2 (X) or 3 (Y) -> Missile Fire (M)
+      const missileBtn = (activeGamepad.buttons[2]?.pressed) || (activeGamepad.buttons[3]?.pressed);
+      this.setVirtualKey('m', missileBtn);
+
+      // Button 9 (Start) -> Pause/Select (Escape/Enter)
+      const pauseBtn = activeGamepad.buttons[9]?.pressed;
+      this.setVirtualKey('escape', pauseBtn);
+      this.setVirtualKey('enter', pauseBtn);
+    } else {
+      this.gamepadAxes = null;
+    }
   }
 
   /**

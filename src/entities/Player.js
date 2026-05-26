@@ -1,248 +1,353 @@
 'use strict';
 
 import { CONSTANTS } from '../config/constants.js';
+import { WeaponSystem } from '../systems/WeaponSystem.js';
 
 /**
- * Player ship entity — handles movement physics, weapons systems,
- * shield/rapid-fire buffs, damage, invincibility, and death state.
+ * Player Starfighter Entity.
+ * Simulates high-fidelity flight dynamics via Verlet integration, boundary elastic bounces,
+ * cycles switchable weaponry, regulates shield absorb arc buffers, and renders gradient exhaust paths.
  */
 export class Player {
   constructor() {
     this.x = CONSTANTS.GAME_WIDTH / 2;
-    this.y = CONSTANTS.GAME_HEIGHT - 100;
+    this.y = CONSTANTS.GAME_HEIGHT - 120;
     this.vx = 0;
     this.vy = 0;
+    this.ax = 0;
+    this.ay = 0;
+
     this.radius = 12;
     this.hp = CONSTANTS.PLAYER_MAX_HP;
     this.maxHp = CONSTANTS.PLAYER_MAX_HP;
+    this.shield = 0;           // Shield capacity: max 60
+    this.missiles = 3;         // Current missiles: max 8
+
     this.active = true;
     this.alive = true;
 
-    // Weapons
-    this.fireCooldown = 0;
-    this.missiles = CONSTANTS.PLAYER_START_MISSILES;
-    this.maxMissiles = CONSTANTS.PLAYER_MAX_MISSILES;
+    // Weapon system manager
+    this.weaponSystem = new WeaponSystem(this);
 
-    // Buffs
-    this.shieldActive = false;
-    this.shieldAlpha = 0;
-    this.rapidFireTimer = 0;
-
-    // Invincibility
-    this.invTimer = 0;
+    // Invincibility parameters
+    this.invTimer = 0;         // frames remaining
     this.invFlashTimer = 0;
     this.visible = true;
 
-    // Death
-    this.deathTimer = 0;
+    // Death animation state
+    this.deathTimer = 0;       // ms remaining
 
-    // Engine trail
+    // Bank tilting
+    this.tilt = 0;
+
+    // 12-point Engine trail history
+    this.trail = [];
     this.trailTimer = 0;
 
-    // Tilt angle for visual banking
-    this.tilt = 0;
+    this.input = null; // reference set in Game
   }
 
   /**
-   * Resets player to initial spawn state
+   * Resets player to spawn status
    */
   reset() {
     this.x = CONSTANTS.GAME_WIDTH / 2;
-    this.y = CONSTANTS.GAME_HEIGHT - 100;
+    this.y = CONSTANTS.GAME_HEIGHT - 120;
     this.vx = 0;
     this.vy = 0;
+    this.ax = 0;
+    this.ay = 0;
+    
     this.hp = CONSTANTS.PLAYER_MAX_HP;
+    this.shield = 0;
+    this.missiles = 3;
+    
     this.active = true;
     this.alive = true;
-    this.fireCooldown = 0;
-    this.missiles = CONSTANTS.PLAYER_START_MISSILES;
-    this.shieldActive = false;
-    this.shieldAlpha = 0;
-    this.rapidFireTimer = 0;
     this.invTimer = CONSTANTS.PLAYER_INVINCIBILITY_FRAMES;
     this.deathTimer = 0;
     this.tilt = 0;
+    this.trail = [];
+
+    this.weaponSystem = new WeaponSystem(this);
   }
 
   /**
-   * Core player update — reads input state, applies physics and manages buff timers
-   * @param {import('../engine/Input.js').Input} input
-   * @param {import('../engine/Pool.js').Pool} particlePool
-   * @param {any[]} particles
+   * Verlet integration physics update
+   * @param {Object} input 
+   * @param {Object} particlePool 
+   * @param {Array} particles 
+   * @param {number} dt - delta time in seconds
+   * @param {Object} audio
    */
-  update(input, particlePool, particles) {
+  update(input, particlePool, particles, dt, audio) {
+    this.input = input;
+
     if (!this.alive) {
-      this.deathTimer--;
+      this.deathTimer = Math.max(0, this.deathTimer - dt * 1000);
       return;
     }
 
-    // Movement input
-    const speed = CONSTANTS.PLAYER_SPEED;
-    if (input.isKeyDown('arrowleft') || input.isKeyDown('a')) this.vx -= speed;
-    if (input.isKeyDown('arrowright') || input.isKeyDown('d')) this.vx += speed;
-    if (input.isKeyDown('arrowup') || input.isKeyDown('w')) this.vy -= speed;
-    if (input.isKeyDown('arrowdown') || input.isKeyDown('s')) this.vy += speed;
+    // 1. Accel inputs (Keyboard / Gamepad)
+    this.ax = 0;
+    this.ay = 0;
+    const accel = CONSTANTS.PLAYER_THRUST;
 
-    // Apply friction
-    this.vx *= CONSTANTS.PLAYER_FRICTION;
-    this.vy *= CONSTANTS.PLAYER_FRICTION;
+    if (input.gamepadAxes) {
+      // Gamepad control
+      this.ax = input.gamepadAxes.x * accel;
+      this.ay = input.gamepadAxes.y * accel;
+    } else {
+      // Keyboard WASD/Arrow controls
+      let moveX = 0;
+      let moveY = 0;
 
-    // Visual tilt based on horizontal velocity
-    this.tilt = this.vx * 0.06;
+      if (input.isKeyDown('arrowleft') || input.isKeyDown('a')) moveX -= 1;
+      if (input.isKeyDown('arrowright') || input.isKeyDown('d')) moveX += 1;
+      if (input.isKeyDown('arrowup') || input.isKeyDown('w')) moveY -= 1;
+      if (input.isKeyDown('arrowdown') || input.isKeyDown('s')) moveY += 1;
 
-    // Apply velocity
-    this.x += this.vx;
-    this.y += this.vy;
-
-    // Clamp to screen bounds
-    const pad = this.radius;
-    this.x = Math.max(pad, Math.min(CONSTANTS.GAME_WIDTH - pad, this.x));
-    this.y = Math.max(pad, Math.min(CONSTANTS.GAME_HEIGHT - pad, this.y));
-
-    // Fire cooldown
-    if (this.fireCooldown > 0) this.fireCooldown--;
-
-    // Rapid fire timer
-    if (this.rapidFireTimer > 0) this.rapidFireTimer--;
-
-    // Shield decay
-    if (this.shieldActive) {
-      this.shieldAlpha -= CONSTANTS.PLAYER_SHIELD_DECAY;
-      if (this.shieldAlpha <= 0) {
-        this.shieldActive = false;
-        this.shieldAlpha = 0;
+      // Normalization to prevent diagonal speeding
+      if (moveX !== 0 || moveY !== 0) {
+        const length = Math.hypot(moveX, moveY);
+        this.ax = (moveX / length) * accel;
+        this.ay = (moveY / length) * accel;
       }
     }
 
-    // Invincibility
+    // 2. Verlet Physics Integration:
+    // pos += vel * dt
+    // vel += acc * dt
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    this.vx += this.ax * dt;
+    this.vy += this.ay * dt;
+
+    // Frame-rate independent drag friction
+    const friction = Math.pow(CONSTANTS.PLAYER_FRICTION, dt * 60);
+    this.vx *= friction;
+    this.vy *= friction;
+
+    // Speed clamping
+    const curSpeed = Math.hypot(this.vx, this.vy);
+    if (curSpeed > CONSTANTS.PLAYER_MAX_SPEED) {
+      this.vx = (this.vx / curSpeed) * CONSTANTS.PLAYER_MAX_SPEED;
+      this.vy = (this.vy / curSpeed) * CONSTANTS.PLAYER_MAX_SPEED;
+    }
+
+    // 3. Elastic boundary bouncing with 0.65 damping
+    const pad = this.radius;
+    const bounceDamping = CONSTANTS.PLAYER_DAMPING;
+
+    if (this.x < pad) {
+      this.x = pad;
+      this.vx = -this.vx * bounceDamping;
+    } else if (this.x > CONSTANTS.GAME_WIDTH - pad) {
+      this.x = CONSTANTS.GAME_WIDTH - pad;
+      this.vx = -this.vx * bounceDamping;
+    }
+
+    if (this.y < pad) {
+      this.y = pad;
+      this.vy = -this.vy * bounceDamping;
+    } else if (this.y > CONSTANTS.GAME_HEIGHT - pad) {
+      this.y = CONSTANTS.GAME_HEIGHT - pad;
+      this.vy = -this.vy * bounceDamping;
+    }
+
+    // 4. Visual tilt bank (vx * 0.04 capped at 0.22 rad)
+    const rawTilt = this.vx * CONSTANTS.PLAYER_TILT_SCALE;
+    this.tilt = Math.max(-CONSTANTS.PLAYER_TILT_MAX, Math.min(CONSTANTS.PLAYER_TILT_MAX, rawTilt));
+
+    // 5. Update weapon cooldowns
+    this.weaponSystem.update(dt);
+
+    // Q/Select weapon swap
+    if (input.isKeyJustPressed('q')) {
+      this.weaponSystem.switchWeapon(audio);
+    }
+
+    // Weapon Upgrades and invincibility
     if (this.invTimer > 0) {
-      this.invTimer--;
+      this.invTimer -= dt * 60;
       this.invFlashTimer++;
       this.visible = this.invFlashTimer % 6 < 3;
     } else {
       this.visible = true;
     }
 
-    // Engine trail particles
+    // 6. 12-point engine trail history tracking
     this.trailTimer++;
+    if (this.trailTimer % 2 === 0) {
+      this.trail.unshift({ x: this.x, y: this.y + this.radius });
+      if (this.trail.length > 12) {
+        this.trail.pop();
+      }
+    }
+
+    // Generate exhaust particles too for kinetic spray
     if (this.trailTimer % 3 === 0 && particlePool && particles) {
-      const p = particlePool.obtain(
-        this.x + (Math.random() * 6 - 3),
-        this.y + this.radius + 2,
-        (Math.random() * 2 - 1) * 0.3,
-        Math.random() * 1.5 + 1.0,
-        Math.random() > 0.5 ? '#00f3ff' : '#0066ff',
-        12,
-        Math.random() * 2 + 1
-      );
-      particles.push(p);
+      const p = particlePool.obtain();
+      if (p) {
+        const enginePower = Math.hypot(this.vx, this.vy) / CONSTANTS.PLAYER_MAX_SPEED;
+        const driftX = (Math.random() * 2 - 1) * 2;
+        const speedY = Math.random() * 120 + 80 + (enginePower * 100);
+        
+        p.init(
+          this.x + driftX,
+          this.y + this.radius + 2,
+          (Math.random() * 2 - 1) * 12,
+          speedY,
+          0.18 + Math.random() * 0.1,
+          Math.random() > 0.4 ? '#00f3ff' : '#0066ff',
+          Math.random() * 2.0 + 1.0
+        );
+      }
     }
   }
 
   /**
-   * Returns the current fire cooldown value based on rapid-fire buff
-   * @returns {number}
+   * Inflicts damage, reducing shield reserves or hull integrity
+   * @param {number} amount 
+   * @param {Object} camera 
+   * @param {Object} audio 
    */
-  getFireCooldown() {
-    return this.rapidFireTimer > 0
-      ? CONSTANTS.PLAYER_RAPID_COOLDOWN
-      : CONSTANTS.PLAYER_BASE_COOLDOWN;
-  }
+  takeDamage(amount, camera, audio) {
+    if (this.invTimer > 0 || !this.alive) return;
 
-  /**
-   * Applies damage to the player, considering shield absorption
-   * @param {number} amount
-   */
-  takeDamage(amount) {
-    if (this.invTimer > 0) return;
-
-    if (this.shieldActive) {
-      // Shield absorbs all damage
-      this.shieldAlpha -= 0.25;
-      if (this.shieldAlpha <= 0) {
-        this.shieldActive = false;
-        this.shieldAlpha = 0;
+    if (this.shield > 0) {
+      audio.playShieldAbsorb();
+      this.shield -= amount;
+      if (this.shield < 0) {
+        this.hp += this.shield; // spillover
+        this.shield = 0;
       }
+      this.invTimer = 18; // short invincibility on shield hit
+      camera.shake(0.24);
       return;
     }
 
+    audio.playPlayerHit();
     this.hp -= amount;
-    this.invTimer = 20; // Brief invincibility after hit
+    this.invTimer = 40; // longer invincibility
+    
+    // Intense camera shake on direct hull damage
+    camera.shake(0.48);
 
     if (this.hp <= 0) {
       this.hp = 0;
       this.alive = false;
       this.active = false;
-      this.deathTimer = CONSTANTS.PLAYER_DEATH_TIMEOUT;
+      this.deathTimer = CONSTANTS.PLAYER_DEATH_DURATION;
+      audio.playExplosionLarge();
     }
   }
 
   /**
-   * Heals the player
-   * @param {number} amount
+   * Refill hull hitpoints
    */
   heal(amount) {
     this.hp = Math.min(this.maxHp, this.hp + amount);
   }
 
   /**
-   * Activates shield buff
+   * Refill shield capacity (max 60)
    */
   activateShield() {
-    this.shieldActive = true;
-    this.shieldAlpha = 1.0;
+    this.shield = 60;
   }
 
   /**
-   * Activates rapid-fire buff
-   */
-  activateRapidFire() {
-    this.rapidFireTimer = CONSTANTS.PLAYER_RAPID_DURATION;
-  }
-
-  /**
-   * Adds missiles to inventory
-   * @param {number} count
-   */
-  addMissiles(count) {
-    this.missiles = Math.min(this.maxMissiles, this.missiles + count);
-  }
-
-  /**
-   * Renders the player ship as a premium vector polygon
-   * @param {CanvasRenderingContext2D} ctx
+   * Renders player starfighter ship, glowing engines, engine trail, and shields.
+   * @param {CanvasRenderingContext2D} ctx 
    */
   draw(ctx) {
     if (!this.alive || !this.visible) return;
 
+    // 1. Draw tapering gradient engine trail
+    if (this.trail.length > 1) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      
+      // Draw path
+      ctx.beginPath();
+      ctx.moveTo(this.trail[0].x, this.trail[0].y);
+      for (let i = 1; i < this.trail.length; i++) {
+        ctx.lineTo(this.trail[i].x, this.trail[i].y);
+      }
+
+      // Trail: white core -> cyan -> transparent
+      const grad = ctx.createLinearGradient(
+        this.x, this.y, 
+        this.trail[this.trail.length - 1].x, 
+        this.trail[this.trail.length - 1].y
+      );
+      grad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+      grad.addColorStop(0.25, 'rgba(0, 243, 255, 0.6)');
+      grad.addColorStop(0.7, 'rgba(0, 102, 255, 0.25)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = 4.0;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // 2. Draw Ship
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.tilt);
 
-    // Engine glow
+    // Engine flame scale relative to velocity length
+    const speedPower = Math.hypot(this.vx, this.vy) / CONSTANTS.PLAYER_MAX_SPEED;
+    const flameHeight = Math.max(5, 5 + speedPower * 14 + Math.sin(Date.now() * 0.05) * 3);
+
+    // Draw engine flame
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const flameGrad = ctx.createLinearGradient(0, this.radius, 0, this.radius + flameHeight);
+    flameGrad.addColorStop(0, '#ffffff');
+    flameGrad.addColorStop(0.3, '#00ffff');
+    flameGrad.addColorStop(0.7, '#0055ff');
+    flameGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+    ctx.fillStyle = flameGrad;
+    ctx.beginPath();
+    ctx.moveTo(-4, this.radius);
+    ctx.lineTo(0, this.radius + flameHeight);
+    ctx.lineTo(4, this.radius);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Fuselage shadow glow
     ctx.shadowColor = CONSTANTS.COLORS.PLAYER;
     ctx.shadowBlur = 15;
 
-    // Main fuselage — angular fighter shape
+    // Ship shape (Premium vector design)
     ctx.fillStyle = CONSTANTS.COLORS.PLAYER;
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1.2;
 
     ctx.beginPath();
     ctx.moveTo(0, -this.radius - 4);   // Nose
     ctx.lineTo(-8, -2);                 // Left shoulder
-    ctx.lineTo(-12, this.radius);       // Left wing tip
-    ctx.lineTo(-4, this.radius - 4);    // Left inner wing
-    ctx.lineTo(0, this.radius + 2);     // Tail center
-    ctx.lineTo(4, this.radius - 4);     // Right inner wing
-    ctx.lineTo(12, this.radius);        // Right wing tip
+    ctx.lineTo(-12, this.radius);       // Left wingtip
+    ctx.lineTo(-4, this.radius - 4);    // Left inner hull
+    ctx.lineTo(0, this.radius + 2);     // Center tail
+    ctx.lineTo(4, this.radius - 4);     // Right inner hull
+    ctx.lineTo(12, this.radius);        // Right wingtip
     ctx.lineTo(8, -2);                  // Right shoulder
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Cockpit canopy
-    ctx.fillStyle = '#003050';
+    // Canopy glass
+    ctx.fillStyle = '#002540';
     ctx.strokeStyle = '#00d0ff';
     ctx.lineWidth = 0.8;
     ctx.beginPath();
@@ -254,52 +359,47 @@ export class Player {
     ctx.fill();
     ctx.stroke();
 
-    ctx.shadowBlur = 0;
-
-    // Engine exhaust nozzles (twin flame dots)
-    ctx.fillStyle = '#00aaff';
-    ctx.beginPath();
-    ctx.arc(-4, this.radius - 1, 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(4, this.radius - 1, 2, 0, Math.PI * 2);
-    ctx.fill();
-
     ctx.restore();
 
-    // Shield overlay
-    if (this.shieldActive) {
+    // 3. Shield Ring: arc drawn around player ship directly
+    if (this.shield > 0) {
       ctx.save();
-      ctx.globalAlpha = this.shieldAlpha * 0.4;
-      ctx.strokeStyle = CONSTANTS.COLORS.SHIELD;
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = CONSTANTS.COLORS.SHIELD;
-      ctx.shadowBlur = 20;
+      ctx.globalCompositeOperation = 'screen';
+      
+      // Arc matches current shield percentage
+      const shieldPct = this.shield / 60;
+      const angleEnd = Math.PI * 2 * shieldPct - Math.PI / 2;
 
-      const shieldRadius = this.radius + 10 + Math.sin(Date.now() * 0.008) * 2;
+      ctx.strokeStyle = '#0088ff';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#0088ff';
+      ctx.shadowBlur = 12;
+
+      // Draw active shield arc
       ctx.beginPath();
-      ctx.arc(this.x, this.y, shieldRadius, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, this.radius + 12, -Math.PI / 2, angleEnd);
       ctx.stroke();
 
-      // Inner hex grid pattern
-      ctx.globalAlpha = this.shieldAlpha * 0.15;
-      ctx.fillStyle = CONSTANTS.COLORS.SHIELD;
+      // Draw faint background shield path
+      ctx.strokeStyle = 'rgba(0, 136, 255, 0.12)';
+      ctx.shadowBlur = 0;
       ctx.beginPath();
-      ctx.arc(this.x, this.y, shieldRadius - 2, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(this.x, this.y, this.radius + 12, 0, Math.PI * 2);
+      ctx.stroke();
 
       ctx.restore();
     }
 
-    // Rapid fire indicator
-    if (this.rapidFireTimer > 0) {
+    // 4. Weapon Upgrade Aura
+    if (this.weaponSystem.weaponUpgradeTimer > 0) {
       ctx.save();
-      const flashAlpha = 0.3 + Math.sin(Date.now() * 0.015) * 0.2;
-      ctx.globalAlpha = flashAlpha;
-      ctx.fillStyle = CONSTANTS.COLORS.POWERUP_RAPID;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.strokeStyle = '#ffff00';
+      ctx.lineWidth = 1.0;
+      ctx.globalAlpha = 0.3 + Math.sin(Date.now() * 0.015) * 0.15;
       ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius + 6, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(this.x, this.y, this.radius + 8, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.restore();
     }
   }

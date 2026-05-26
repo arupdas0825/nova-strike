@@ -3,8 +3,9 @@
 import { CONSTANTS } from '../config/constants.js';
 
 /**
- * Game Over screen with final score display, high score comparison,
- * stats summary, and restart prompt.
+ * Cinematic Game Over Screen.
+ * Renders final scores, locks high records, summarizes campaigns,
+ * and features subtle R/G/B split chromatic aberration text rendering.
  */
 export class GameOverScreen {
   constructor() {
@@ -22,10 +23,11 @@ export class GameOverScreen {
   }
 
   /**
-   * Updates animation timer
+   * Updates animations frame-rate independently
+   * @param {number} dt - delta time in seconds
    */
-  update() {
-    this.timer++;
+  update(dt) {
+    this.timer += dt * 60; // nom frames
   }
 
   /**
@@ -42,44 +44,55 @@ export class GameOverScreen {
 
     ctx.save();
 
-    // Semi-transparent dark overlay
-    const fadeAlpha = Math.min(1, this.timer / 40) * 0.8;
+    // 1. Semi-transparent black overlay
+    const fadeAlpha = Math.min(1.0, this.timer / 40) * 0.88;
     ctx.fillStyle = `rgba(2, 2, 8, ${fadeAlpha})`;
     ctx.fillRect(0, 0, W, H);
 
-    // Only draw text after initial fade
     if (this.timer < 15) {
       ctx.restore();
       return;
     }
 
-    const textAlpha = Math.min(1, (this.timer - 15) / 20);
+    const textAlpha = Math.min(1.0, (this.timer - 15) / 20);
     ctx.globalAlpha = textAlpha;
 
-    // GAME OVER title
-    ctx.fillStyle = '#ff0055';
-    ctx.font = "900 52px 'Orbitron', sans-serif";
+    // 2. Chromatic Aberration splits on "GAME OVER"
+    const titleY = H * 0.28;
+    ctx.save();
+    ctx.font = "900 56px 'Orbitron', sans-serif";
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+
+    // Red Channel
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.75)';
+    ctx.fillText('GAME OVER', W / 2 + 2, titleY);
+
+    // Cyan Channel
+    ctx.fillStyle = 'rgba(0, 255, 255, 0.75)';
+    ctx.fillText('GAME OVER', W / 2 - 2, titleY);
+
+    // Hot pink core with neon glow
     ctx.shadowColor = '#ff0055';
     ctx.shadowBlur = 25;
-    ctx.fillText('GAME OVER', W / 2, H * 0.25);
-    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ff0055';
+    ctx.fillText('GAME OVER', W / 2, titleY);
+    ctx.restore();
 
     // Divider line
     ctx.strokeStyle = 'rgba(255, 0, 85, 0.3)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(W * 0.3, H * 0.33);
-    ctx.lineTo(W * 0.7, H * 0.33);
+    ctx.moveTo(W * 0.3, H * 0.36);
+    ctx.lineTo(W * 0.7, H * 0.36);
     ctx.stroke();
 
-    // Final Score
+    // 3. Final Score
     ctx.fillStyle = CONSTANTS.COLORS.TEXT_WHITE;
-    ctx.font = "700 28px 'Orbitron', sans-serif";
-    ctx.fillText(`SCORE: ${score.toLocaleString()}`, W / 2, H * 0.42);
+    ctx.font = "700 30px 'Orbitron', sans-serif";
+    ctx.fillText(`SCORE: ${score.toLocaleString()}`, W / 2, H * 0.45);
 
-    // New High Score indicator
+    // New High Score Badge
     if (this.newHighScore) {
       const flashAlpha = 0.5 + Math.sin(this.timer * 0.08) * 0.5;
       ctx.save();
@@ -88,21 +101,21 @@ export class GameOverScreen {
       ctx.font = "900 18px 'Orbitron', sans-serif";
       ctx.shadowColor = CONSTANTS.COLORS.TEXT_YELLOW;
       ctx.shadowBlur = 15;
-      ctx.fillText('★ NEW HIGH SCORE ★', W / 2, H * 0.50);
+      ctx.fillText('★ NEW HIGH SCORE RECORD ★', W / 2, H * 0.53);
       ctx.restore();
     } else {
       ctx.fillStyle = CONSTANTS.COLORS.TEXT_GREY;
       ctx.font = "600 14px 'Orbitron', sans-serif";
-      ctx.fillText(`HIGH SCORE: ${highScore.toLocaleString()}`, W / 2, H * 0.50);
+      ctx.fillText(`HIGH SCORE RECORD: ${highScore.toLocaleString()}`, W / 2, H * 0.53);
     }
 
     // Stats
     ctx.fillStyle = CONSTANTS.COLORS.TEXT_GREY;
-    ctx.font = "400 14px 'Inter', sans-serif";
-    ctx.fillText(`Level Reached: ${level}`, W / 2, H * 0.60);
-    ctx.fillText(`Bosses Defeated: ${bossKills}`, W / 2, H * 0.65);
+    ctx.font = "500 13px 'Inter', sans-serif";
+    ctx.fillText(`COMMAND SECTOR REACHED: LEVEL ${level}`, W / 2, H * 0.63);
+    ctx.fillText(`THREAT ELIMINATIONS: ${bossKills} CAPITALS`, W / 2, H * 0.67);
 
-    // Restart prompt — blinking
+    // 4. Restart prompt (blinking)
     if (this.timer > 60) {
       const blinkAlpha = 0.5 + Math.sin(this.timer * 0.06) * 0.5;
       ctx.globalAlpha = blinkAlpha;
