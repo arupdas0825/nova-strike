@@ -28,7 +28,7 @@ export class Laser {
    * @param {Object} audio 
    */
   update(player, enemies, particlePool, dt, audio) {
-    const isFiring = player.input.isKeyDown(' ') && player.weaponSystem.activeWeapon === 'LASER';
+    const isFiring = (player.input.isKeyDown(' ') || player.input.isKeyDown('Space')) && player.weaponSystem.activeWeapon === 'LASER';
     
     // 1. Thermal management
     if (isFiring && !this.overheated) {

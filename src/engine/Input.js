@@ -6,10 +6,10 @@
  */
 export class Input {
   constructor() {
-    /** @type {Object<string, boolean>} Active keyboard states */
-    this.keys = {};
-    /** @type {Object<string, boolean>} Single press trigger latch */
-    this.keysPressed = {};
+    /** @type {Set<string>} Active keyboard and code states */
+    this.keys = new Set();
+    /** @type {Set<string>} Single press trigger latch */
+    this.keysPressed = new Set();
     
     // Gamepad state
     this.gamepadAxes = null;
@@ -22,29 +22,49 @@ export class Input {
    */
   init() {
     window.addEventListener('keydown', (e) => {
-      const key = e.key.toLowerCase();
+      const key = e.key;
+      const code = e.code;
+      const keyL = key.toLowerCase();
+      const codeL = code.toLowerCase();
       
       // Stop page scrolling with navigation keys during active play
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'spacebar', 'escape', 'enter'].includes(e.key.toLowerCase())) {
+      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'spacebar', 'escape', 'enter'].includes(keyL)) {
         e.preventDefault();
       }
 
-      if (!this.keys[key]) {
-        this.keysPressed[key] = true;
+      if (!this.keys.has(key) && !this.keys.has(code) && !this.keys.has(keyL) && !this.keys.has(codeL)) {
+        this.keysPressed.add(key);
+        this.keysPressed.add(code);
+        this.keysPressed.add(keyL);
+        this.keysPressed.add(codeL);
       }
-      this.keys[key] = true;
+      this.keys.add(key);
+      this.keys.add(code);
+      this.keys.add(keyL);
+      this.keys.add(codeL);
     });
 
     window.addEventListener('keyup', (e) => {
-      const key = e.key.toLowerCase();
-      this.keys[key] = false;
-      this.keysPressed[key] = false;
+      const key = e.key;
+      const code = e.code;
+      const keyL = key.toLowerCase();
+      const codeL = code.toLowerCase();
+
+      this.keys.delete(key);
+      this.keys.delete(code);
+      this.keys.delete(keyL);
+      this.keys.delete(codeL);
+
+      this.keysPressed.delete(key);
+      this.keysPressed.delete(code);
+      this.keysPressed.delete(keyL);
+      this.keysPressed.delete(codeL);
     });
 
     // Reset keyboard map on blur to prevent keys getting "stuck"
     window.addEventListener('blur', () => {
-      this.keys = {};
-      this.keysPressed = {};
+      this.keys.clear();
+      this.keysPressed.clear();
       this.gamepadAxes = null;
     });
   }
@@ -77,6 +97,7 @@ export class Input {
       // Button 0 (A/Cross) or 7 (RT) -> Fire/Select (SPACE)
       const fireBtn = (activeGamepad.buttons[0]?.pressed) || (activeGamepad.buttons[7]?.pressed);
       this.setVirtualKey(' ', fireBtn);
+      this.setVirtualKey('space', fireBtn);
 
       // Button 1 (B/Circle) or 4/5 (Shoulders) -> Weapon Switch (Q)
       const switchBtn = (activeGamepad.buttons[1]?.pressed) || (activeGamepad.buttons[4]?.pressed) || (activeGamepad.buttons[5]?.pressed);
@@ -101,7 +122,8 @@ export class Input {
    * @returns {boolean}
    */
   isKeyDown(key) {
-    return !!this.keys[key.toLowerCase()];
+    const k = key.toLowerCase();
+    return this.keys.has(key) || this.keys.has(k);
   }
 
   /**
@@ -111,8 +133,9 @@ export class Input {
    */
   isKeyJustPressed(key) {
     const k = key.toLowerCase();
-    if (this.keysPressed[k]) {
-      this.keysPressed[k] = false;
+    if (this.keysPressed.has(key) || this.keysPressed.has(k)) {
+      this.keysPressed.delete(key);
+      this.keysPressed.delete(k);
       return true;
     }
     return false;
@@ -125,16 +148,19 @@ export class Input {
    */
   setVirtualKey(key, active) {
     const k = key.toLowerCase();
-    if (active && !this.keys[k]) {
-      this.keysPressed[k] = true;
+    if (active) {
+      this.keys.add(key);
+      this.keys.add(k);
+    } else {
+      this.keys.delete(key);
+      this.keys.delete(k);
     }
-    this.keys[k] = active;
   }
 
   /**
    * Resets all trigger latches
    */
   clearPressed() {
-    this.keysPressed = {};
+    this.keysPressed.clear();
   }
 }

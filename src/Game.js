@@ -111,7 +111,7 @@ export class Game {
     this.highScore = this.saveSystem.loadHighScore();
 
     // Variable Timestep metrics
-    this.lastTime = 0;
+    this.lastTime = null;
     this.running = false;
     
     // FPS tracking and bloom auto-disabler
@@ -242,23 +242,25 @@ export class Game {
    */
   start() {
     this.running = true;
-    this.lastTime = performance.now();
+    this.lastTime = null;
     requestAnimationFrame((t) => this.loop(t));
   }
 
   loop(timestamp) {
     if (!this.running) return;
 
-    const delta = timestamp - this.lastTime;
+    if (this.lastTime === null || this.lastTime === 0) {
+      this.lastTime = timestamp;
+    }
+    const rawDt = timestamp - this.lastTime;
+    // Clamp between 1ms and 50ms, then convert to seconds
+    const dt = Math.min(Math.max(rawDt, 1), 50) / 1000;
     this.lastTime = timestamp;
 
-    // Calculate real-time FPS
-    if (delta > 0) {
-      this.fps = Math.round(1000 / delta);
+    // Calculate real-time FPS from rawDt
+    if (rawDt > 0) {
+      this.fps = Math.round(1000 / rawDt);
     }
-
-    // Cap delta to prevent massive leaps on tab switches (0.05s / 20fps cap)
-    const dt = Math.min(delta / 1000, 0.05);
 
     try {
       // Tick FPS monitor to disable bloom if dragging down mid-range systems
@@ -447,7 +449,7 @@ export class Game {
 
     // Player Firing Primary blasters
     if (this.player.alive && this.player.weaponSystem.cooldown <= 0) {
-      const isFirePressed = this.input.isKeyDown(' ');
+      const isFirePressed = this.input.isKeyDown(' ') || this.input.isKeyDown('Space');
       
       if (isFirePressed) {
         this.player.weaponSystem.firePrimary(this.player.x, this.player.y, this.bulletPool, this.audio);
